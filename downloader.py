@@ -1,28 +1,34 @@
 import yt_dlp
 import os
+import re
+import time  # Đưa lên đầu để không bị lỗi
 import glob
+
+def sanitize_filename(filename):
+    """Loại bỏ ký tự không hợp lệ khỏi tên file"""
+    return re.sub(r'[<>:"/\\|?*]', '_', filename)
 
 def download_media(url, output_path, media_type="audio"):
     """
-    Hàm tải xuống tối ưu cho Home Server.
-    Đã loại bỏ Cookies, sử dụng giả lập Android để chống chặn.
+    Tải xuống media từ YouTube (Phiên bản Anti-Block + Delay)
     """
     try:
-        # 1. Tạo thư mục nếu chưa có
-        if not os.path.exists(output_path):
-            os.makedirs(output_path)
+        # Tạo thư mục nếu chưa tồn tại
+        os.makedirs(output_path, exist_ok=True)
         
-        # 2. Cấu hình cốt lõi (Anti-Block & Safe Filename)
+        # Cấu hình chung (Common Options)
         common_opts = {
             'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
             'noplaylist': True,
-            'restrictfilenames': True,  # Tên file sạch (không dấu)
-            'overwrites': True,         # Ghi đè file cũ
-            'quiet': True,              # Giảm log rác
+            'quiet': True,
             'no_warnings': True,
             
-            # --- CÔNG NGHỆ CHỐNG CHẶN (ANTI-BLOCK) ---
-            # Giả lập là App Android để YouTube "thả cửa" cho Server tải
+            # --- CẤU HÌNH DELAY (QUAN TRỌNG ĐỂ TRÁNH 403) ---
+            'sleep_interval': 3,       # Nghỉ 3 giây trước khi tải
+            'max_sleep_interval': 5,   # Nghỉ tối đa 5 giây
+            # -----------------------------------------------
+
+            # Bypass YouTube Block (Giả lập Android)
             'extractor_args': {
                 'youtube': {
                     'player_client': ['android', 'web'],
@@ -30,12 +36,14 @@ def download_media(url, output_path, media_type="audio"):
                 }
             },
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-            }
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            },
+            'retries': 10,             # Thử lại 10 lần nếu lỗi
+            'fragment_retries': 10,
         }
 
-        # 3. Cấu hình riêng Audio/Video
         if media_type == "audio":
+            # Cấu hình cho Audio
             ydl_opts = {
                 **common_opts,
                 'format': 'bestaudio/best',
@@ -45,47 +53,57 @@ def download_media(url, output_path, media_type="audio"):
                     'preferredquality': '192',
                 }],
             }
-        else:
-            # Video: Ưu tiên MP4 1080p -> Merge Video+Audio -> Output MP4
+            print("INFO: Cấu hình tải âm thanh.")
+            
+        else:  
+            # Cấu hình cho Video (1080p)
             ydl_opts = {
                 **common_opts,
                 'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                 'merge_output_format': 'mp4',
             }
-
-        # 4. Thực thi tải
+            print("INFO: Cấu hình tải video.")
+        
+        # Thực hiện tải xuống
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Lấy thông tin trước
+            # Lấy thông tin video trước
             try:
                 info = ydl.extract_info(url, download=False)
+                title = sanitize_filename(info.get('title', 'Unknown'))
+                print(f"🎵 Tiêu đề: {title}")
             except Exception as e:
-                return False, f"Lỗi lấy thông tin video: {str(e)}"
-
+                print(f"⚠️ Không thể lấy thông tin video: {str(e)}")
+            
             # Tải xuống
             ydl.download([url])
             
-            # 5. Tìm file kết quả chính xác
-            # Lấy tên file gốc (đã được làm sạch bởi restrictfilenames)
-            clean_title = ydl.prepare_filename(info)
-            base_name = os.path.splitext(os.path.basename(clean_title))[0]
+            # --- LOGIC TÌM FILE (Dựa trên thời gian tạo) ---
+            # Tìm các file mp3/mp4 vừa được tạo trong 5 phút gần đây
+            downloaded_files = []
+            current_time = time.time()
             
-            # Tìm tất cả file chứa tên đó trong thư mục output
-            search_pattern = os.path.join(output_path, f"*{base_name}*")
-            files = glob.glob(search_pattern)
+            for filename in os.listdir(output_path):
+                if filename.endswith(('.mp3', '.mp4', '.webm', '.m4a')):
+                    file_path = os.path.join(output_path, filename)
+                    # Kiểm tra file vừa tạo trong vòng 300 giây (5 phút)
+                    if os.path.getctime(file_path) > (current_time - 300):
+                        downloaded_files.append(filename)
             
-            if not files:
-                # Fallback: Tìm file mới nhất trong thư mục
-                all_files = glob.glob(os.path.join(output_path, "*"))
-                if not all_files:
-                    return False, "Tải xong nhưng không tìm thấy file."
-                latest_file = max(all_files, key=os.path.getctime)
-                return True, os.path.basename(latest_file)
-
-            # Lấy file khớp tên và mới nhất
-            latest_file = max(files, key=os.path.getctime)
-            final_filename = os.path.basename(latest_file)
-            
-            return True, final_filename
-
+            if downloaded_files:
+                # Lấy file mới nhất trong số các file vừa tìm được
+                latest_file = max(downloaded_files, 
+                                key=lambda x: os.path.getctime(os.path.join(output_path, x)))
+                return True, latest_file
+            else:
+                return True, f"Đã tải xong (nhưng không tìm thấy tên file, hãy kiểm tra thư mục downloads)"
+                
     except Exception as e:
-        return False, f"Lỗi hệ thống: {str(e)}"
+        error_msg = str(e)
+        print(f"❌ Lỗi: {error_msg}")
+        
+        if "HTTP Error 403" in error_msg:
+             return False, "Lỗi 403: YouTube chặn IP. Hãy thử cập nhật: pip install --upgrade yt-dlp"
+        if "Sign in" in error_msg:
+            return False, "Video yêu cầu đăng nhập (18+)."
+            
+        return False, f"Lỗi tải xuống: {error_msg}"
