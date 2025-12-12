@@ -1,64 +1,41 @@
 import yt_dlp
 import os
-import re
-import time
 import glob
-
-def sanitize_filename(filename):
-    """
-    Làm sạch tên file để an toàn cho hệ thống file và URL
-    """
-    # Thay thế các ký tự không an toàn bằng gạch dưới
-    s = re.sub(r'[\\/*?:"<>|]', '_', filename)
-    # Loại bỏ khoảng trắng thừa
-    s = s.strip()
-    return s
-
-def get_cookies_path():
-    """
-    Tìm file cookies.txt trong thư mục gốc.
-    Cần thiết để tải các video giới hạn độ tuổi hoặc tránh bị YouTube chặn IP Server.
-    """
-    cookie_file = "cookies.txt"
-    if os.path.exists(cookie_file):
-        print(f"INFO: Đã tìm thấy file cookies: {cookie_file}")
-        return cookie_file
-    return None
 
 def download_media(url, output_path, media_type="audio"):
     """
-    Hàm tải xuống media tối ưu cho Web Server.
-    
-    Returns:
-        tuple: (success: bool, result: str)
-               - Nếu success=True, result là tên file đã tải.
-               - Nếu success=False, result là thông báo lỗi.
+    Hàm tải xuống tối ưu cho Home Server.
+    Đã loại bỏ Cookies, sử dụng giả lập Android để chống chặn.
     """
     try:
-        # Tạo thư mục đầu ra nếu chưa có
-        os.makedirs(output_path, exist_ok=True)
+        # 1. Tạo thư mục nếu chưa có
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
         
-        # Cấu hình chung cho yt-dlp
-        cookie_path = get_cookies_path()
-        
+        # 2. Cấu hình cốt lõi (Anti-Block & Safe Filename)
         common_opts = {
             'outtmpl': os.path.join(output_path, '%(title)s.%(ext)s'),
             'noplaylist': True,
-            'restrictfilenames': True, # Đảm bảo tên file không chứa ký tự lạ (ASCII only)
-            'overwrites': True,        # Ghi đè nếu file đã tồn tại
-            'cookiefile': cookie_path, # Load cookies nếu có
-            'quiet': True,             # Giảm bớt log rác
+            'restrictfilenames': True,  # Tên file sạch (không dấu)
+            'overwrites': True,         # Ghi đè file cũ
+            'quiet': True,              # Giảm log rác
             'no_warnings': True,
-            # Giả lập trình duyệt để tránh bị chặn
+            
+            # --- CÔNG NGHỆ CHỐNG CHẶN (ANTI-BLOCK) ---
+            # Giả lập là App Android để YouTube "thả cửa" cho Server tải
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                    'player_skip': ['webpage', 'configs', 'js'],
+                }
+            },
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
             }
         }
 
+        # 3. Cấu hình riêng Audio/Video
         if media_type == "audio":
-            # Cấu hình tải MP3
             ydl_opts = {
                 **common_opts,
                 'format': 'bestaudio/best',
@@ -69,21 +46,46 @@ def download_media(url, output_path, media_type="audio"):
                 }],
             }
         else:
-            # Cấu hình tải Video (MP4)
-            # Ưu tiên 1080p MP4, nếu không có thì lấy best video + best audio merge lại
+            # Video: Ưu tiên MP4 1080p -> Merge Video+Audio -> Output MP4
             ydl_opts = {
                 **common_opts,
                 'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'merge_output_format': 'mp4', # Bắt buộc đầu ra cuối cùng là mp4
+                'merge_output_format': 'mp4',
             }
 
-        # Bắt đầu tải
+        # 4. Thực thi tải
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # 1. Lấy thông tin trước để check lỗi
+            # Lấy thông tin trước
             try:
                 info = ydl.extract_info(url, download=False)
             except Exception as e:
-                error_msg = str(e)
-                if "Sign in" in error_msg:
-                    return False, "YouTube yêu cầu đăng nhập (Cookies). Server chưa cấu hình cookies."
-                if "Video unavailable" i
+                return False, f"Lỗi lấy thông tin video: {str(e)}"
+
+            # Tải xuống
+            ydl.download([url])
+            
+            # 5. Tìm file kết quả chính xác
+            # Lấy tên file gốc (đã được làm sạch bởi restrictfilenames)
+            clean_title = ydl.prepare_filename(info)
+            base_name = os.path.splitext(os.path.basename(clean_title))[0]
+            
+            # Tìm tất cả file chứa tên đó trong thư mục output
+            search_pattern = os.path.join(output_path, f"*{base_name}*")
+            files = glob.glob(search_pattern)
+            
+            if not files:
+                # Fallback: Tìm file mới nhất trong thư mục
+                all_files = glob.glob(os.path.join(output_path, "*"))
+                if not all_files:
+                    return False, "Tải xong nhưng không tìm thấy file."
+                latest_file = max(all_files, key=os.path.getctime)
+                return True, os.path.basename(latest_file)
+
+            # Lấy file khớp tên và mới nhất
+            latest_file = max(files, key=os.path.getctime)
+            final_filename = os.path.basename(latest_file)
+            
+            return True, final_filename
+
+    except Exception as e:
+        return False, f"Lỗi hệ thống: {str(e)}"
