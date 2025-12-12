@@ -1,0 +1,38 @@
+name: Deploy to Home Server
+
+on:
+  push:
+    branches: [ "main" ]  # Chạy khi có code mới đẩy lên nhánh main
+
+jobs:
+  deploy:
+    runs-on: self-hosted  # Chạy trên máy PC cũ của bạn
+    
+    steps:
+    - name: 1. Lấy code mới nhất từ GitHub
+      uses: actions/checkout@v3
+
+    - name: 2. Copy code vào thư mục chạy web
+      run: |
+        # Copy toàn bộ file từ thư mục tạm của Runner sang thư mục Web
+        # -r: copy thư mục, -u: chỉ update file mới/thay đổi
+        cp -ru * /mnt/data/youtube-web/
+        
+        echo "✅ Đã copy code mới sang /mnt/data/youtube-web"
+
+    - name: 3. Cài đặt thư viện & Khởi động lại
+      run: |
+        cd /mnt/data/youtube-web
+        
+        # Cài đặt thư viện mới (nếu có)
+        source venv/bin/activate
+        pip install -r requirements.txt
+        
+        # Restart ứng dụng (Tắt tmux cũ, bật tmux mới)
+        # Nếu tmux 'youtube' chưa chạy thì bỏ qua lỗi (|| true)
+        tmux kill-session -t youtube || true
+        
+        # Chạy session mới tên là 'youtube'
+        tmux new -d -s youtube 'source venv/bin/activate && streamlit run app.py'
+        
+        echo "🚀 Đã khởi động lại Web thành công!"
