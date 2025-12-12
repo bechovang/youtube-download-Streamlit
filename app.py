@@ -101,4 +101,4 @@ if st.button("⚡ BẮT ĐẦU TẢI XUỐNG"):
 
 # Footer
 st.markdown("---")
-st.caption("Home Server YouTube Downloader | Powered by Streamlit & yt-dlp")
+st.caption("Home Server YouTube Downloader Project | Powered by Streamlit & yt-dlp")
