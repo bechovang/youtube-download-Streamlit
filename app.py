@@ -1,104 +1,214 @@
 import streamlit as st
 import os
+import shutil
+import time
+import zipfile
+from datetime import datetime
 from downloader import download_media
 
-# 1. CẤU HÌNH TRANG WEB
-st.set_page_config(
-    page_title="YouTube Downloader Pro",
-    page_icon="🚀",
-    layout="centered"
-)
-
-# CSS Tùy chỉnh cho đẹp hơn
-st.markdown("""
-    <style>
-    .stButton>button {
-        width: 100%;
-        background-color: #FF4B4B;
-        color: white;
-        font-weight: bold;
-        padding: 10px;
-    }
-    .success-box {
-        padding: 15px;
-        background-color: #D4EDDA;
-        color: #155724;
-        border-radius: 5px;
-        margin-bottom: 10px;
-        text-align: center;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# 2. GIAO DIỆN CHÍNH
-st.title("🚀 YouTube Downloader")
-st.write("Công cụ tải video/nhạc YouTube cho Home Server")
-
-# Tạo thư mục lưu trữ tạm trên server nếu chưa có
+# --- CẤU HÌNH ---
 DOWNLOAD_FOLDER = "downloads"
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
-# KHUNG NHẬP LIỆU
-with st.container():
-    url = st.text_input("🔗 Dán link YouTube vào đây:", placeholder="https://www.youtube.com/watch?v=...")
+st.set_page_config(page_title="Home Server Downloader", page_icon="🎬", layout="wide")
+
+# --- HÀM HỖ TRỢ ---
+
+def create_zip_archive():
+    """Nén toàn bộ thư mục downloads thành zip"""
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    zip_filename = f"Batch_Download_{timestamp}.zip"
+    zip_path = os.path.join(DOWNLOAD_FOLDER, zip_filename)
     
-    col1, col2 = st.columns(2)
-    with col1:
-        file_type = st.radio("📂 Chọn định dạng:", ["Nhạc (MP3)", "Video (MP4)"])
-        # Chuyển đổi lựa chọn sang từ khóa mà downloader.py hiểu
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk(DOWNLOAD_FOLDER):
+            for file in files:
+                if file != zip_filename: # Không nén chính nó
+                    file_path = os.path.join(root, file)
+                    zipf.write(file_path, os.path.basename(file_path))
+    return zip_path, zip_filename
+
+def get_file_size(path):
+    try:
+        size_mb = os.path.getsize(path) / (1024 * 1024)
+        return f"{size_mb:.2f} MB"
+    except:
+        return "0 MB"
+
+# --- GIAO DIỆN CHÍNH ---
+
+st.title("🚀 Home Server Downloader V3")
+
+# Tạo 2 Tab chính
+tab1, tab2 = st.tabs(["📥 TẢI HÀNG LOẠT", "📂 KHO DỮ LIỆU & QUẢN LÝ"])
+
+# ==========================================
+# TAB 1: TẢI HÀNG LOẠT (QUEUE SYSTEM)
+# ==========================================
+with tab1:
+    col_input, col_config = st.columns([2, 1])
+    
+    with col_input:
+        raw_urls = st.text_area("📋 Dán danh sách link (Mỗi link 1 dòng):", height=250, placeholder="https://youtube.com/...\nhttps://youtube.com/...")
+    
+    with col_config:
+        st.write("⚙️ **Cấu hình:**")
+        file_type = st.radio("Định dạng:", ["Nhạc (MP3)", "Video (MP4)"])
         media_type = "audio" if "Nhạc" in file_type else "video"
-    
-    with col2:
-        st.write("") # Spacer
-        st.write("") 
-        st.info("💡 Mẹo: Video sẽ được tải ở chất lượng tốt nhất (1080p).")
+        
+        st.info("💡 **Mẹo:**\n- Hệ thống sẽ tự động bỏ qua link lỗi.\n- Tải xong sẽ có thông báo góc màn hình.")
 
-# 3. XỬ LÝ KHI BẤM NÚT TẢI
-if st.button("⚡ BẮT ĐẦU TẢI XUỐNG"):
-    if not url:
-        st.warning("⚠️ Vui lòng dán đường link vào trước!")
-    else:
-        # Hiển thị vòng quay đang xử lý
-        with st.spinner(f"Server đang tải {file_type}... Vui lòng đợi..."):
-            try:
-                # Gọi hàm từ file downloader.py
-                success, result = download_media(url, DOWNLOAD_FOLDER, media_type)
+    # Nút điều khiển
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        start_btn = st.button("▶️ BẮT ĐẦU CHẠY HÀNG CHỜ", type="primary", use_container_width=True)
+    with col_btn2:
+        stop_btn = st.button("🛑 HỦY KHẨN CẤP (PANIC)", type="secondary", use_container_width=True)
+
+    if stop_btn:
+        st.session_state.stop_processing = True
+        st.error("⚠️ Đã nhận lệnh HỦY! Hệ thống sẽ dừng sau khi xử lý xong file hiện tại.")
+
+    # XỬ LÝ LOGIC TẢI
+    if start_btn and raw_urls:
+        st.session_state.stop_processing = False
+        
+        # Lọc link sạch
+        url_list = [line.strip() for line in raw_urls.split('\n') if line.strip()]
+        total_videos = len(url_list)
+        
+        if total_videos == 0:
+            st.warning("Danh sách link trống!")
+        else:
+            st.toast(f"🚀 Bắt đầu xử lý {total_videos} video...", icon="⏳")
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            success_count = 0
+            fail_count = 0
+            
+            # Vòng lặp xử lý từng video
+            for i, url in enumerate(url_list):
+                # Kiểm tra nút Hủy
+                if st.session_state.get('stop_processing', False):
+                    st.warning("🛑 Đã dừng quy trình theo yêu cầu!")
+                    st.toast("Đã dừng khẩn cấp!", icon="🛑")
+                    break
                 
-                if success:
-                    # Thành công
-                    filename = result
-                    file_path = os.path.join(DOWNLOAD_FOLDER, filename)
-                    
-                    st.success("✅ Đã xử lý xong!")
-                    
-                    # Kiểm tra file có tồn tại không trước khi cho tải
-                    if os.path.exists(file_path):
-                        # Đọc file để tạo nút tải về
-                        with open(file_path, "rb") as f:
-                            file_data = f.read()
-                            
-                        # Xác định loại file (MIME type)
-                        mime_type = "audio/mpeg" if media_type == "audio" else "video/mp4"
+                # Hiển thị trạng thái (Status Card)
+                with st.status(f"🔄 Đang tải ({i+1}/{total_videos}): {url}", expanded=True) as status:
+                    st.write("Dang kết nối server...")
+                    try:
+                        success, result = download_media(url, DOWNLOAD_FOLDER, media_type)
                         
-                        st.markdown(f'<div class="success-box">File: <b>{filename}</b> đã sẵn sàng!</div>', unsafe_allow_html=True)
-                        
-                        # Nút download về máy tính người dùng
-                        st.download_button(
-                            label=f"⬇️ NHẤN ĐỂ TẢI FILE VỀ MÁY ({file_type})",
-                            data=file_data,
-                            file_name=filename,
-                            mime=mime_type
-                        )
-                    else:
-                        st.error("❌ Lỗi: Không tìm thấy file trên server sau khi tải.")
-                else:
-                    # Thất bại (Lỗi từ downloader trả về)
-                    st.error(f"❌ Lỗi tải xuống: {result}")
-                    
-            except Exception as e:
-                st.error(f"❌ Lỗi hệ thống: {str(e)}")
+                        if success:
+                            st.write("✅ Tải xong!")
+                            status.update(label=f"✅ Xong ({i+1}/{total_videos}): {result}", state="complete", expanded=False)
+                            success_count += 1
+                        else:
+                            st.write(f"❌ Lỗi: {result}")
+                            status.update(label=f"❌ Lỗi ({i+1}/{total_videos}): {url}", state="error", expanded=False)
+                            fail_count += 1
+                    except Exception as e:
+                        status.update(label=f"❌ Lỗi hệ thống: {url}", state="error")
+                        fail_count += 1
+                
+                # Cập nhật thanh tiến trình tổng
+                progress_bar.progress((i + 1) / total_videos)
+                
+                # Nghỉ ngơi chống chặn (Anti-block delay)
+                if i < total_videos - 1:
+                    time.sleep(2) 
 
-# Footer
-st.markdown("---")
-st.caption("Home Server YouTube Downloader Project | Powered by Streamlit & yt-dlp")
+            # TỔNG KẾT
+            final_msg = f"🎉 HOÀN TẤT! Thành công: {success_count} | Lỗi: {fail_count}"
+            st.success(final_msg)
+            
+            # HIỆU ỨNG THÔNG BÁO WEB (Thay cho Telegram)
+            st.balloons()  # Thả bóng bay
+            st.toast(final_msg, icon="✅") # Hiện thông báo nhỏ góc phải
+            
+            # Tự động chuyển hướng sự chú ý
+            if success_count > 0:
+                st.info("👉 Chuyển sang tab 'KHO DỮ LIỆU' để tải file về máy.")
+
+# ==========================================
+# TAB 2: KHO DỮ LIỆU (GALLERY)
+# ==========================================
+with tab2:
+    col_head, col_refresh = st.columns([3, 1])
+    with col_head:
+        st.header("📂 Quản lý File trên Server")
+    with col_refresh:
+        if st.button("🔄 Làm mới danh sách", use_container_width=True):
+            st.rerun()
+
+    # Lấy danh sách file
+    try:
+        files = sorted(os.listdir(DOWNLOAD_FOLDER), key=lambda x: os.path.getctime(os.path.join(DOWNLOAD_FOLDER, x)), reverse=True)
+        files = [f for f in files if not f.startswith('.')] # Lọc file ẩn
+    except:
+        files = []
+
+    if not files:
+        st.info("Chưa có file nào trong kho.")
+    else:
+        # Nút ZIP ALL
+        col_zip, col_info = st.columns([1, 3])
+        with col_zip:
+            if st.button("📦 NÉN ZIP TẤT CẢ & TẢI VỀ", type="primary", use_container_width=True):
+                with st.spinner("Đang nén file..."):
+                    zip_path, zip_name = create_zip_archive()
+                    with open(zip_path, "rb") as f:
+                        st.download_button(
+                            label="⬇️ TẢI FILE ZIP NGAY",
+                            data=f,
+                            file_name=zip_name,
+                            mime="application/zip",
+                            use_container_width=True
+                        )
+        with col_info:
+            st.success(f"📊 Tổng số file: **{len(files)}**")
+
+        st.divider()
+
+        # Hiển thị danh sách file dạng lưới
+        for file in files:
+            file_path = os.path.join(DOWNLOAD_FOLDER, file)
+            col_icon, col_name, col_size, col_action = st.columns([0.5, 4, 1.5, 2])
+            
+            with col_icon:
+                if file.endswith(".mp3"):
+                    st.write("🎵")
+                elif file.endswith(".mp4"):
+                    st.write("🎬")
+                elif file.endswith(".zip"):
+                    st.write("📦")
+                else:
+                    st.write("📄")
+            
+            with col_name:
+                st.write(file)
+            
+            with col_size:
+                st.caption(get_file_size(file_path))
+            
+            with col_action:
+                c1, c2 = st.columns(2)
+                with c1:
+                    try:
+                        with open(file_path, "rb") as f:
+                            st.download_button("⬇️", f, file_name=file, key=f"dl_{file}")
+                    except:
+                        st.error("Err")
+                with c2:
+                    if st.button("🗑️", key=f"del_{file}"):
+                        try:
+                            os.remove(file_path)
+                            st.toast(f"Đã xóa: {file}", icon="🗑️")
+                            time.sleep(0.5)
+                            st.rerun()
+                        except:
+                            st.error("Lỗi xóa")
+            
+            st.markdown("---")
