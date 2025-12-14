@@ -38,7 +38,7 @@ def get_file_size(path):
 
 # --- GIAO DIỆN CHÍNH ---
 
-st.title("🚀 Home Server Downloader V3")
+st.title("🚀 Home Server Downloader V3.2")
 
 # Tạo 2 Tab chính
 tab1, tab2 = st.tabs(["📥 TẢI HÀNG LOẠT", "📂 KHO DỮ LIỆU & QUẢN LÝ"])
@@ -124,11 +124,9 @@ with tab1:
             final_msg = f"🎉 HOÀN TẤT! Thành công: {success_count} | Lỗi: {fail_count}"
             st.success(final_msg)
             
-            # HIỆU ỨNG THÔNG BÁO WEB (Thay cho Telegram)
-            st.balloons()  # Thả bóng bay
-            st.toast(final_msg, icon="✅") # Hiện thông báo nhỏ góc phải
+            st.balloons()
+            st.toast(final_msg, icon="✅")
             
-            # Tự động chuyển hướng sự chú ý
             if success_count > 0:
                 st.info("👉 Chuyển sang tab 'KHO DỮ LIỆU' để tải file về máy.")
 
@@ -143,17 +141,15 @@ with tab2:
         if st.button("🔄 Làm mới danh sách", use_container_width=True):
             st.rerun()
 
-    # Lấy danh sách file
     try:
         files = sorted(os.listdir(DOWNLOAD_FOLDER), key=lambda x: os.path.getctime(os.path.join(DOWNLOAD_FOLDER, x)), reverse=True)
-        files = [f for f in files if not f.startswith('.')] # Lọc file ẩn
+        files = [f for f in files if not f.startswith('.')]
     except:
         files = []
 
     if not files:
         st.info("Chưa có file nào trong kho.")
     else:
-        # Nút ZIP ALL
         col_zip, col_info = st.columns([1, 3])
         with col_zip:
             if st.button("📦 NÉN ZIP TẤT CẢ & TẢI VỀ", type="primary", use_container_width=True):
@@ -172,10 +168,11 @@ with tab2:
 
         st.divider()
 
-        # Hiển thị danh sách file dạng lưới
+        # Hiển thị danh sách file
         for file in files:
             file_path = os.path.join(DOWNLOAD_FOLDER, file)
-            col_icon, col_name, col_size, col_action = st.columns([0.5, 4, 1.5, 2])
+            # Chia cột: Icon | Tên file | Dung lượng | Nút bấm
+            col_icon, col_name, col_size, col_action = st.columns([0.5, 4, 1.5, 2.5])
             
             with col_icon:
                 if file.endswith(".mp3"):
@@ -198,17 +195,23 @@ with tab2:
                 with c1:
                     try:
                         with open(file_path, "rb") as f:
-                            st.download_button("⬇️", f, file_name=file, key=f"dl_{file}")
+                            # CẬP NHẬT: Thêm chữ "Tải" vào nút
+                            st.download_button("⬇️ Tải", f, file_name=file, key=f"dl_{file}", help="Tải về máy tính")
                     except:
                         st.error("Err")
                 with c2:
-                    if st.button("🗑️", key=f"del_{file}"):
+                    # CẬP NHẬT: Thêm chữ "Xóa" vào nút
+                    if st.button("🗑️ Xóa", key=f"del_{file}", help="Xóa khỏi Server"):
                         try:
-                            os.remove(file_path)
-                            st.toast(f"Đã xóa: {file}", icon="🗑️")
-                            time.sleep(0.5)
-                            st.rerun()
-                        except:
-                            st.error("Lỗi xóa")
+                            if os.path.exists(file_path):
+                                os.remove(file_path)
+                                st.toast(f"Đã xóa: {file}", icon="🗑️")
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.warning("File không tồn tại")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Lỗi: {e}")
             
             st.markdown("---")
