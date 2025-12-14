@@ -28,11 +28,7 @@ jobs:
         source venv/bin/activate
         pip install -r requirements.txt
         
-        # Restart ứng dụng (Tắt tmux cũ, bật tmux mới)
-        # Nếu tmux 'youtube' chưa chạy thì bỏ qua lỗi (|| true)
-        tmux kill-session -t youtube || true
-        
-        # Chạy session mới tên là 'youtube'
-        tmux new -d -s youtube 'source venv/bin/activate && streamlit run app.py'
+        # Restart Service (Kiểu mới - Chuyên nghiệp hơn)
+        sudo systemctl restart youtube
         
         echo "🚀 Đã khởi động lại Web thành công!"
