@@ -15,68 +15,44 @@ st.set_page_config(
     page_title="Tải Nhạc Cho Mẹ Diệp", 
     page_icon="🎵", 
     layout="wide",
-    initial_sidebar_state="collapsed" # Ẩn thanh bên cho rộng chỗ
+    initial_sidebar_state="collapsed"
 )
 
-# --- CSS TÙY CHỈNH CHO MOBILE & FOOTER ---
+# --- CSS TÙY CHỈNH CHO MOBILE ---
 st.markdown("""
     <style>
-    /* 1. Tùy chỉnh Font chữ và Nút bấm cho dễ nhìn trên điện thoại */
+    /* Font chữ dễ đọc */
     html, body, [class*="css"] {
         font-family: 'Segoe UI', sans-serif;
     }
     
-    /* Nút bấm to hơn để dễ chạm */
+    /* Nút bấm to, bo tròn để dễ bấm trên điện thoại */
     .stButton>button {
         height: 3.5rem;
         font-weight: bold;
         border-radius: 12px;
         transition: all 0.3s;
+        border: none;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
     
-    /* Hiệu ứng khi bấm nút */
+    /* Hiệu ứng khi bấm */
     .stButton>button:active {
         transform: scale(0.98);
     }
 
-    /* 2. Ẩn bớt menu mặc định của Streamlit cho gọn */
+    /* Ẩn menu rườm rà của Streamlit */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-
-    /* 3. Footer riêng tặng mẹ Diệp */
-    .custom-footer {
-        position: fixed;
-        left: 0;
-        bottom: 0;
-        width: 100%;
-        background-color: #f0f2f6; /* Màu xám nhẹ */
-        color: #e91e63; /* Màu hồng đậm */
-        text-align: center;
-        padding: 15px;
-        font-size: 16px;
-        font-weight: bold;
-        border-top: 2px solid #e91e63;
-        z-index: 999;
-    }
     
-    /* Đẩy nội dung lên để không bị Footer che mất */
-    .main .block-container {
-        padding-bottom: 100px; 
-        padding-top: 2rem;
-    }
-    
-    /* Card trạng thái đẹp hơn */
+    /* Tùy chỉnh card trạng thái */
     div[data-testid="stStatusWidget"] {
         border-radius: 10px;
-        border: 1px solid #ddd;
+        border: 1px solid #eee;
+        background-color: #f9f9f9;
     }
     </style>
-    
-    <!-- Nội dung Footer -->
-    <div class="custom-footer">
-        Web giúp mẹ Diệp dễ down nhạc
-    </div>
     """, unsafe_allow_html=True)
 
 # --- HÀM HỖ TRỢ ---
@@ -104,7 +80,11 @@ def get_file_size(path):
 # --- GIAO DIỆN CHÍNH ---
 
 st.title("🎵 Tải Nhạc/Video Youtube")
-st.caption("Server tốc độ cao tại nhà")
+
+# Dòng chữ tặng mẹ Diệp nằm ngay dưới tiêu đề, màu hồng đậm
+st.markdown("Server tốc độ cao tại nhà • <span style='color:#e91e63; font-weight:bold'>Web giúp mẹ Diệp dễ down nhạc</span>", unsafe_allow_html=True)
+
+st.write("---") # Đường kẻ ngang phân cách
 
 # Tạo 2 Tab
 tab1, tab2 = st.tabs(["📥 TẢI VỀ", "📂 KHO NHẠC ĐÃ TẢI"])
@@ -115,7 +95,9 @@ tab1, tab2 = st.tabs(["📥 TẢI VỀ", "📂 KHO NHẠC ĐÃ TẢI"])
 with tab1:
     with st.container():
         st.write("👇 **Dán link Youtube vào đây (mỗi dòng 1 link):**")
-        raw_urls = st.text_area("", height=150, placeholder="Ví dụ:\nhttps://www.youtube.com/watch?v=...\nhttps://www.youtube.com/watch?v=...")
+        raw_urls = st.text_area("", height=150, placeholder="Ví dụ:\nhttps://www.youtube.com/watch?v=...\nhttps://www.youtube.com/watch?v=...", label_visibility="collapsed")
+    
+    st.write("") # Khoảng trống
     
     col_opt1, col_opt2 = st.columns(2)
     with col_opt1:
@@ -128,7 +110,7 @@ with tab1:
         # Nút to màu hồng/đỏ
         start_btn = st.button("🚀 BẮT ĐẦU TẢI NGAY", type="primary", use_container_width=True)
 
-    # Nút dừng khẩn cấp (ẩn trong expander cho gọn)
+    # Nút dừng khẩn cấp
     with st.expander("⚠️ Nút dừng khẩn cấp"):
         if st.button("🛑 DỪNG LẠI TẤT CẢ", type="secondary", use_container_width=True):
             st.session_state.stop_processing = True
@@ -153,7 +135,7 @@ with tab1:
                 
                 # Card trạng thái
                 with st.status(f"🔄 Bài {i+1}/{total}: Đang tải...", expanded=True) as status:
-                    st.write(f"Link: {url}")
+                    st.caption(f"Link: {url}")
                     try:
                         success, result = download_media(url, DOWNLOAD_FOLDER, media_type)
                         if success:
@@ -206,13 +188,14 @@ with tab2:
         for file in files:
             file_path = os.path.join(DOWNLOAD_FOLDER, file)
             
-            # Giao diện thẻ cho mỗi bài hát
             with st.container():
-                # Dòng 1: Tên file đậm
+                # Dòng 1: Tên file
                 icon = "🎵" if file.endswith(".mp3") else "🎬"
+                if file.endswith(".zip"): icon = "📦"
+                
                 st.markdown(f"**{icon} {file}**")
                 
-                # Dòng 2: Dung lượng và Nút bấm
+                # Dòng 2: Nút bấm
                 c_size, c_dl, c_del = st.columns([1.5, 2, 1.5])
                 
                 with c_size:
@@ -236,4 +219,4 @@ with tab2:
                         except:
                             pass
                 
-                st.divider() # Đường kẻ mờ ngăn cách
+                st.divider()
